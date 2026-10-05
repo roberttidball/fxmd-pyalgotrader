@@ -9,16 +9,23 @@ from urllib.request import Request, urlopen
 
 def fetch_fxmacrodata_calendar(currency: str = "usd", top_tier_only: bool = True) -> list[dict[str, Any]]:
     headers = {"Accept": "application/json", "User-Agent": "pyalgotrader-fxmacrodata-example"}
-    api_key = os.getenv("FXMD_API_KEY")
-    if api_key:
-        headers["X-API-Key"] = api_key
     request = Request(
         f"https://api.fxmacrodata.com/v1/calendar/{currency.lower()}",
         headers=headers,
     )
+    api_key = (os.getenv("FXMD_API_KEY") or "").strip()
+    if any(char.isspace() or ord(char) < 32 for char in api_key):
+        raise ValueError("FXMD_API_KEY contains invalid characters")
+    if api_key:
+        # Unredirected headers are not forwarded if the request is redirected.
+        request.add_unredirected_header("X-API-Key", api_key)
     with urlopen(request, timeout=20) as response:
         payload = json.loads(response.read().decode("utf-8"))
-    rows = list(payload.get("data") or [])
+    data = payload.get("data") if isinstance(payload, dict) else None
+    if not isinstance(data, list):
+        detail = payload.get("detail") if isinstance(payload, dict) else None
+        raise ValueError(f"Unexpected FXMacroData calendar response: {detail or 'missing data list'}")
+    rows = [row for row in data if isinstance(row, dict)]
     if top_tier_only:
         rows = [row for row in rows if row.get("top_tier_for_currency") or row.get("market_tier") == 1]
     return rows
